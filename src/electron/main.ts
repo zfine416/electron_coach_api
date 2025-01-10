@@ -3,6 +3,14 @@ import path from 'path';
 import { isDev } from './util.js';
 import { getPreloadPath } from './pathResolver.js';
 import { exec } from 'child_process';
+import mic from 'mic';
+import fs from 'fs';
+
+let mainWindow: BrowserWindow | null = null;
+let micInstance: ReturnType<typeof mic> | null = null;
+let audioFileStream: fs.WriteStream | null = null;
+const outputFilePath = path.join(app.getPath('userData'), 'meeting_recording.wav');
+let notificationShown = false;
 
 app.on('ready', () => {
   console.log('App is ready.');
@@ -34,41 +42,105 @@ function monitorZoomProcesses() {
 
       // Split the output into lines
       const processes = stdout.split('\n').filter((line) => line.includes('zoom.us'));
-
       const zoomMainProcess = processes.find((line) => line.includes('/MacOS/zoom.us'));
       const aomHostProcess = processes.find((line) => line.includes('/Frameworks/aomhost.app'));
-
+      console.log({zoomMainProcess, aomHostProcess, notificationShown})
       if (zoomMainProcess) {
         if (aomHostProcess) {
-          console.log('Zoom meeting detected. aomhost process is running.');
-          showZoomNotification();
-          // Notify renderer or perform actions for a detected meeting
+          if (!notificationShown) {
+            console.log('Zoom meeting detected. aomhost process is running.');
+            showZoomNotification();
+            notificationShown = true; // Prevent further notifications
+          }
         } else {
           console.log('Zoom is running, but no meeting detected.');
+          notificationShown = false; // Reset state if no meeting is detected
         }
       } else {
         console.log('Zoom is not running.');
+        notificationShown = false;
       }
     });
-  }, 5000); // Check every 5 seconds
+  }, 4000); // Check every 4 seconds
 }
 
 function showZoomNotification() {
   const notification = new Notification({
     title: 'Meeting Detected',
     body: 'Zoom meeting is running. Click to start recording.',
-    closeButtonText: 'Dismiss',
   });
 
   notification.on('click', () => {
     console.log('Start Recording clicked.');
-    // Add logic to start recording or notify renderer
-    // For example:
-    // if (mainWindow) mainWindow.webContents.send('start-recording');
+    startRecording();
+    notificationShown = false;
   });
 
   notification.show();
 }
+
+function startRecording() {
+  if (micInstance) {
+    console.log('Recording is already in progress.');
+    return;
+  }
+
+  console.log('Starting audio recording...');
+  micInstance = mic({
+    rate: '16000',
+    channels: '1',
+    debug: true,
+    fileType: 'wav',
+  });
+
+  audioFileStream = fs.createWriteStream(outputFilePath);
+
+  const micInputStream = micInstance.getAudioStream();
+  micInputStream.pipe(audioFileStream);
+
+  micInputStream.on('data', (data) => {
+    console.log(`Recording chunk received: ${data.length} bytes`);
+  });
+
+  micInputStream.on('error', (error) => {
+    console.error('Microphone error:', error);
+    stopRecording(); // Stop recording in case of an error
+  });
+
+  micInputStream.on('startComplete', () => {
+    console.log('Recording started successfully.');
+  });
+
+  micInputStream.on('stopComplete', () => {
+    console.log('Recording stopped successfully.');
+  });
+
+  micInstance.start();
+}
+
+function stopRecording() {
+  if (!micInstance) {
+    console.log('No active recording to stop.');
+    return;
+  }
+
+  console.log('Stopping audio recording...');
+  micInstance.stop();
+  micInstance = null;
+
+  if (audioFileStream) {
+    audioFileStream.end(() => {
+      console.log(`Recording saved to ${outputFilePath}`);
+      // Notify the renderer or perform additional actions
+      if (mainWindow) {
+        mainWindow.webContents.send('recording-saved', outputFilePath);
+      }
+    });
+    audioFileStream = null;
+  }
+}
+
+
 app.on('window-all-closed', () => {
   console.log('All windows closed. Exiting app.');
   if (process.platform !== 'darwin') app.quit();
