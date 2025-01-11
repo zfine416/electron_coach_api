@@ -5,7 +5,13 @@ import { getPreloadPath } from './pathResolver.js';
 import { exec } from 'child_process';
 import mic from 'mic';
 import fs from 'fs';
+import * as speech from '@google-cloud/speech';
 
+// Set the path to your service account JSON
+const serviceAccountPath = path.join(app.getAppPath(), 'coach-ai-445722-26abc296022b.json');
+process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath;
+
+console.log('GOOGLE_APPLICATION_CREDENTIALS set to:', serviceAccountPath);
 let mainWindow: BrowserWindow | null = null;
 let micInstance: ReturnType<typeof mic> | null = null;
 let audioFileStream: fs.WriteStream | null = null;
@@ -33,6 +39,8 @@ app.on('ready', () => {
 });
 
 function monitorZoomProcesses() {
+  let meetingActive = false; // Track if a meeting is currently active
+
   setInterval(() => {
     exec("ps aux | grep 'zoom.us'", (err, stdout, stderr) => {
       if (err || stderr) {
@@ -45,31 +53,34 @@ function monitorZoomProcesses() {
       const zoomMainProcess = processes.find((line) => line.includes('/MacOS/zoom.us'));
       const aomHostProcess = processes.find((line) => line.includes('/Frameworks/aomhost.app'));
 
+      console.log({ zoomMainProcess, aomHostProcess, notificationShown, meetingActive });
+
       if (zoomMainProcess) {
         if (aomHostProcess) {
-          if (!notificationShown) {
+          // Meeting is detected
+          if (!meetingActive) {
             console.log('Zoom meeting detected. aomhost process is running.');
             showZoomNotification();
-            notificationShown = true; // Prevent further notifications
+            meetingActive = true; // Mark meeting as active
           }
         } else {
-          if (notificationShown) {
+          // Zoom is running, but no meeting
+          if (meetingActive) {
             console.log('Zoom meeting ended. Stopping recording...');
             stopRecording();
-            notificationShown = false; // Reset state if no meeting is detected
-          } else {
-            console.log('Zoom is running, but no meeting detected.');
+            meetingActive = false; // Reset meeting state
           }
         }
       } else {
-        if (notificationShown) {
+        // Zoom is not running
+        if (meetingActive) {
           console.log('Zoom is not running. Stopping recording...');
           stopRecording();
         }
-        notificationShown = false; // Ensure state is reset
+        meetingActive = false; // Ensure state is reset
       }
     });
-  }, 4000); // Check every 4 seconds
+  }, 2500); // Check every 2.5 seconds
 }
 
 function showZoomNotification() {
@@ -81,7 +92,7 @@ function showZoomNotification() {
   notification.on('click', () => {
     console.log('Start Recording clicked.');
     startRecording();
-    notificationShown = false;
+    // Keep meetingActive as true since the meeting is still active
   });
 
   notification.show();
@@ -137,17 +148,61 @@ function stopRecording() {
   micInstance = null;
 
   if (audioFileStream) {
-    audioFileStream.end(() => {
+    audioFileStream.end(async () => {
       console.log(`Recording saved to ${outputFilePath}`);
-      // Notify the renderer or perform additional actions
-      if (mainWindow) {
-        mainWindow.webContents.send('recording-saved', outputFilePath);
+
+      // Perform transcription
+      try {
+        const transcription = await transcribeAudio(outputFilePath);
+        console.log('Transcription completed:', transcription);
+
+        // Send the transcription to the renderer process
+        if (mainWindow) {
+          mainWindow.webContents.send('transcription-completed', transcription);
+        }
+      } catch (error) {
+        console.error('Transcription failed:', error);
+        if (mainWindow) {
+          mainWindow.webContents.send('transcription-error', 'Transcription failed.');
+        }
       }
     });
     audioFileStream = null;
   }
 }
 
+const client = new speech.SpeechClient();
+async function transcribeAudio(filePath: string): Promise<string> {
+  const audio = {
+    content: fs.readFileSync(filePath).toString('base64'),
+  };
+
+  const config: speech.protos.google.cloud.speech.v1.IRecognitionConfig = {
+    encoding: speech.protos.google.cloud.speech.v1.RecognitionConfig.AudioEncoding.LINEAR16, // Use the enum
+    sampleRateHertz: 16000,
+    languageCode: 'en-US',
+  };
+
+  const request: speech.protos.google.cloud.speech.v1.IRecognizeRequest = {
+    audio,
+    config,
+  };
+
+  // Explicitly type the response
+  const [response] = await client.recognize(request);
+
+  // Safely access the transcription
+  const transcription = response.results
+    ?.map((result) => result.alternatives?.[0]?.transcript)
+    .filter(Boolean) // Filter out any undefined results
+    .join('\n');
+
+  if (!transcription) {
+    throw new Error('No transcription found.');
+  }
+
+  return transcription;
+}
 
 app.on('window-all-closed', () => {
   console.log('All windows closed. Exiting app.');
