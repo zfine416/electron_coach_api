@@ -44,7 +44,7 @@ function monitorZoomProcesses() {
       const processes = stdout.split('\n').filter((line) => line.includes('zoom.us'));
       const zoomMainProcess = processes.find((line) => line.includes('/MacOS/zoom.us'));
       const aomHostProcess = processes.find((line) => line.includes('/Frameworks/aomhost.app'));
-      console.log({zoomMainProcess, aomHostProcess, notificationShown})
+
       if (zoomMainProcess) {
         if (aomHostProcess) {
           if (!notificationShown) {
@@ -53,12 +53,20 @@ function monitorZoomProcesses() {
             notificationShown = true; // Prevent further notifications
           }
         } else {
-          console.log('Zoom is running, but no meeting detected.');
-          notificationShown = false; // Reset state if no meeting is detected
+          if (notificationShown) {
+            console.log('Zoom meeting ended. Stopping recording...');
+            stopRecording();
+            notificationShown = false; // Reset state if no meeting is detected
+          } else {
+            console.log('Zoom is running, but no meeting detected.');
+          }
         }
       } else {
-        console.log('Zoom is not running.');
-        notificationShown = false;
+        if (notificationShown) {
+          console.log('Zoom is not running. Stopping recording...');
+          stopRecording();
+        }
+        notificationShown = false; // Ensure state is reset
       }
     });
   }, 4000); // Check every 4 seconds
