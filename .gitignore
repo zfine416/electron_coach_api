@@ -25,3 +25,5 @@ coach-ai-445722-26abc296022b.json
 *.njsproj
 *.sln
 *.sw?
+
+.env

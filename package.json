@@ -21,6 +21,7 @@
     "@google-cloud/storage": "^7.15.0",
     "@google-cloud/video-intelligence": "^5.3.0",
     "axios": "^1.7.9",
+    "dotenv": "^16.4.7",
     "ffmpeg-static": "^5.2.0",
     "ibm-watson": "^9.1.0",
     "mic": "^2.1.2",

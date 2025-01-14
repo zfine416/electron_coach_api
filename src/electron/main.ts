@@ -8,13 +8,15 @@ import * as speech from '@google-cloud/speech';
 import NaturalLanguageUnderstandingV1 from 'ibm-watson/natural-language-understanding/v1.js';
 import { IamAuthenticator } from 'ibm-watson/auth/index.js';
 import ffmpegPath from 'ffmpeg-static';
+import dotenv from 'dotenv';
+dotenv.config();
 
 const naturalLanguageUnderstanding = new NaturalLanguageUnderstandingV1({
   version: '2022-04-07',
   authenticator: new IamAuthenticator({
-    apikey: 'Ee-wFhi5Qknqox05ni6uwbsaB0DR8xyKCz9KECnzt2fB', // Replace with your API key
+    apikey: process.env.IBM_API_KEY || '', // Use the environment variable
   }),
-  serviceUrl: 'https://api.us-east.natural-language-understanding.watson.cloud.ibm.com/instances/6a9b023c-d8d6-4960-91e9-a4a86b8ec758', // Replace with your service URL
+  serviceUrl: process.env.IBM_SERVICE_URL || '', // Use the environment variable
 });
 
 // Set the path to your service account JSON
