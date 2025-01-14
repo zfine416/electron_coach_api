@@ -67,6 +67,12 @@ declare module 'mic' {
   export default function mic(options?: MicOptions): MicInstance;
 }
 
+type Tone = {
+  score: number;
+  tone_id: string;
+  tone_name: string;
+};
+
 // Ensure the types are globally available
 declare global {
   interface Window {

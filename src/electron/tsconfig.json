@@ -12,5 +12,8 @@
     "skipLibCheck": true,
     // add global types
     "types": ["../../types"],
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "NodeNext"
   }
 }
