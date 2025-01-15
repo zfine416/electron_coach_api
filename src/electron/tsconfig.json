@@ -11,6 +11,9 @@
     // ignore errors from dependencies
     "skipLibCheck": true,
     // add global types
-    "types": ["../../types"]
+    "types": ["../../types"],
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "NodeNext"
   }
 }
