@@ -1,19 +1,8 @@
 const electron = require('electron');
+import { exec } from 'child_process';
 
+console.log("INSIDE PRELOAD.cts")
 electron.contextBridge.exposeInMainWorld('electron', {
-  // Subscribe to statistics
-  subscribeStatistics: (callback: (statistics: Statistics) => void) => {
-    const listener = (_: Electron.IpcRendererEvent, statistics: Statistics) =>
-      callback(statistics);
-    electron.ipcRenderer.on('statistics', listener);
-
-    // Return an unsubscribe function
-    return () => electron.ipcRenderer.off('statistics', listener);
-  },
-
-  // Get static data
-  getStaticData: () => electron.ipcRenderer.invoke('getStaticData'),
-
   // Subscribe to change view
   subscribeChangeView: (callback: (view: View) => void) => {
     const listener = (_: Electron.IpcRendererEvent, view: View) => callback(view);
@@ -28,6 +17,36 @@ electron.contextBridge.exposeInMainWorld('electron', {
     electron.ipcRenderer.send('sendFrameAction', payload);
   },
 
+  getAvailableDevices: async (): Promise<Device[]> => {
+    return new Promise((resolve, reject) => {
+      exec('ffmpeg -f avfoundation -list_devices true', (error, stdout, stderr) => {
+        if (error) {
+          console.error('Error listing devices:', error);
+          reject(error);
+          return;
+        }
+
+        const audioDevices: Device[] = [];
+        const lines = stderr.split('\n');
+        let captureType: 'audio' | null = null;
+
+        for (const line of lines) {
+          if (line.includes('AVFoundation audio devices:')) {
+            captureType = 'audio';
+          } else if (captureType && line.includes('[')) {
+            const match = line.match(/\[(\d+)]\s(.+)/);
+            if (match) {
+              const [, index, name] = match;
+              audioDevices.push({ index, name });
+            }
+          }
+        }
+
+        resolve(audioDevices);
+      });
+    });
+  },
+
   // Subscribe to Zoom meeting detected events
   onZoomMeetingDetected: (callback: (zoomWindowName: string) => void) => {
     const listener = (_: Electron.IpcRendererEvent, zoomWindowName: string) =>
@@ -37,7 +56,7 @@ electron.contextBridge.exposeInMainWorld('electron', {
 
     return () => electron.ipcRenderer.removeListener('zoom-meeting-detected', listener);
   },
-} satisfies Window['electron']);
+})
 
 // Generic IPC invoke helper
 function ipcInvoke<Key extends keyof EventPayloadMapping>(

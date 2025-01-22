@@ -34,19 +34,18 @@ type UnsubscribeFunction = () => void;
 
 interface Window {
   electron: {
-    subscribeStatistics: (
-      callback: (statistics: Statistics) => void
-    ) => UnsubscribeFunction;
-    getStaticData: () => Promise<StaticData>;
     subscribeChangeView: (
       callback: (view: View) => void
     ) => UnsubscribeFunction;
     sendFrameAction: (payload: FrameWindowAction) => void;
 
-    // Add the new onZoomMeetingDetected method
+    // Existing method for Zoom meeting detection
     onZoomMeetingDetected: (
       callback: (zoomWindowName: string) => void
     ) => UnsubscribeFunction;
+
+    // New method for fetching available audio devices
+    getAvailableDevices: () => Promise<{ index: string; name: string }[]>;
   };
 }
 
@@ -72,6 +71,20 @@ type Tone = {
   tone_id: string;
   tone_name: string;
 };
+
+type Device = { index: string; name: string };
+type Devices = {
+  audioDevices: Device[];
+};
+
+interface ElectronAPI {
+  subscribeStatistics: (callback: (statistics: Statistics) => void) => UnsubscribeFunction;
+  getStaticData: () => Promise<StaticData>;
+  subscribeChangeView: (callback: (view: View) => void) => UnsubscribeFunction;
+  sendFrameAction: (payload: FrameWindowAction) => void;
+  onZoomMeetingDetected: (callback: (zoomWindowName: string) => void) => void;
+  getAvailableDevices: () => Promise<Device[]>; // Add this
+}
 
 // Ensure the types are globally available
 declare global {

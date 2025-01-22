@@ -11,6 +11,8 @@ import ffmpegPath from 'ffmpeg-static';
 import dotenv from 'dotenv';
 dotenv.config();
 
+const micInput = 2; // Change this value as needed for testing
+
 const naturalLanguageUnderstanding = new NaturalLanguageUnderstandingV1({
   version: '2022-04-07',
   authenticator: new IamAuthenticator({
@@ -26,14 +28,15 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath;
 console.log('GOOGLE_APPLICATION_CREDENTIALS set to:', serviceAccountPath);
 let mainWindow: BrowserWindow | null = null;
 
-app.on('ready', async () => {
-  console.log('App is ready.');
+app.on('ready', () => {
+  console.log("Preload Path: ", getPreloadPath());
 
   const mainWindow = new BrowserWindow({
     webPreferences: {
       preload: getPreloadPath(),
+      sandbox: false,
     },
-    frame: false, // Disables the default system frame
+    frame: false,
   });
 
   if (isDev()) {
@@ -42,16 +45,50 @@ app.on('ready', async () => {
     mainWindow.loadFile(path.join(app.getAppPath(), '/dist-react/index.html'));
   }
 
-  try {
-    await requestMediaPermissions();
-  } catch (error) {
-    console.error('Failed to request media permissions:', error);
-  }
-
-  // analyzeVideo()
-  // Start monitoring for Zoom windows after the app is ready
-  monitorZoomProcesses();
+  // Perform non-critical async tasks here
+  (async () => {
+    try {
+      await requestMediaPermissions();
+    } catch (error) {
+      console.error('Failed to request media permissions:', error);
+    }
+    monitorZoomProcesses(); // Can also be safely moved here
+  })();
 });
+
+// function getAvailableDevices(callback: (devices: Devices | null) => void): void {
+//   exec('ffmpeg -f avfoundation -list_devices true -i ""', (error, stdout, stderr) => {
+//     if (error) {
+//       console.error('Error listing devices:', error);
+//       callback(null);
+//       return;
+//     }
+
+//     const audioDevices = [];
+
+//     // Parse the output for device names
+//     const lines = stderr.split('\n');
+//     let captureType = null;
+
+//     for (const line of lines) {
+//       if (line.includes('AVFoundation video devices:')) {
+//         captureType = 'video';
+//       } else if (line.includes('AVFoundation audio devices:')) {
+//         captureType = 'audio';
+//       } else if (captureType && line.includes('[')) {
+//         const match = line.match(/\[(\d+)]\s(.+)/);
+//         if (match) {
+//           const [, index, name] = match;
+//           if (captureType === 'audio') {
+//             audioDevices.push({ index, name });
+//           }
+//         }
+//       }
+//     }
+
+//     callback({ audioDevices });
+//   });
+// };
 
 async function requestMediaPermissions(): Promise<void> {
   try {
@@ -82,9 +119,9 @@ function startRecording(outputPath: string) {
   }
 
   console.log('Starting system audio recording...');
-
+  
   // FFmpeg command to record system audio with mono channel (-ac 1)
-  const command = `"${ffmpegPath}" -y -f avfoundation -i "none:0" -ac 1 -ar 44100 -c:a pcm_s16le "${outputPath}"`;
+  const command = `"${ffmpegPath}" -y -f avfoundation -i "none:${micInput}" -ac 1 -ar 44100 -c:a pcm_s16le "${outputPath}"`;
 
   console.log('Executing FFmpeg command:', command);
 
@@ -145,43 +182,35 @@ function stopRecording() {
 }
 
 function monitorZoomProcesses() {
-  let meetingActive = false; // Track if a meeting is currently active
+  let meetingActive = false;
 
   setInterval(() => {
-    exec("ps aux | grep 'zoom.us'", (err, stdout, stderr) => {
+    console.log('Checking for Zoom processes...');
+
+    exec("ps -e | grep 'zoom'", (err, stdout, stderr) => {
       if (err || stderr) {
         console.error('Error detecting Zoom process:', err || stderr);
         return;
       }
 
-      // Split the output into lines
-      const processes = stdout.split('\n').filter((line) => line.includes('zoom.us'));
-      const zoomMainProcess = processes.find((line) => line.includes('/MacOS/zoom.us'));
-      const aomHostProcess = processes.find((line) => line.includes('/Frameworks/aomhost.app'));
+      // Check for the main Zoom process
+      const zoomMainProcess = stdout.includes('/Applications/zoom.us.app/Contents/MacOS/zoom.us');
+      // Check for the CptHost process
+      const zoomMeetingProcess = stdout.includes('/Applications/zoom.us.app/Contents/Frameworks/CptHost.app/Contents/MacOS/CptHost');
 
-      if (zoomMainProcess) {
-        if (aomHostProcess) {
-          // Meeting is detected
-          if (!meetingActive) {
-            console.log('Zoom meeting detected. aomhost process is running.');
-            showZoomNotification();
-            meetingActive = true; // Mark meeting as active
-          }
-        } else {
-          // Zoom is running, but no meeting
-          if (meetingActive) {
-            console.log('Zoom meeting ended. Stopping recording...');
-            stopRecording();
-            meetingActive = false; // Reset meeting state
-          }
+      if (zoomMainProcess && zoomMeetingProcess) {
+        if (!meetingActive) {
+          console.log('Zoom meeting detected based on CptHost process.');
+          showZoomNotification();
+          startRecording(outputPath);
+          meetingActive = true;
         }
       } else {
-        // Zoom is not running
         if (meetingActive) {
-          console.log('Zoom is not running. Stopping recording...');
+          console.log('Zoom meeting ended. Stopping recording...');
           stopRecording();
+          meetingActive = false;
         }
-        meetingActive = false; // Ensure state is reset
       }
     });
   }, 2500); // Check every 2.5 seconds
